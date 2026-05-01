@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import requests
 import os
 import io
+import sys
 
 # ==========================================
 # --- 核心邏輯設定區 (建議由環境變數讀取) ---
@@ -59,7 +60,13 @@ def send_telegram_with_photo_url(token, chat_id, message, photo_url):
 # ==========================================
 # --- 主程式邏輯 ---
 # ==========================================
-print(f"--- 任務啟動: {datetime.now()} ---")
+now = datetime.now()
+print(f"--- 任務啟動: {now} ---")
+
+# --- 週末檢查 (週一=0, ..., 週五=4, 週六=5, 週日=6) ---
+if now.weekday() >= 5:
+    print(f"⚠️ 今日為 {now.strftime('%A')} (週末)，程式停止執行。")
+    sys.exit()
 
 # 1. Shioaji 登入與資料抓取
 api = sj.Shioaji()
