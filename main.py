@@ -1,4 +1,4 @@
-##### Shioaji 權勢策略
+##### Shioaji 權勢策略 0509 Gemini 修正版本
 
 import shioaji as sj
 import pandas as pd
@@ -129,22 +129,60 @@ df['MACD_Hist'] = (ema12 - ema26) - (ema12 - ema26).ewm(span=9, adjust=False).me
 # --- 權勢策略指標計算 ---
 df['RL'] = np.nan
 df['BL'] = np.nan
+df['Signal'] = 0
+df['Message'] = "⚖️【中性觀望】"
 df['prev_close'] = df['close'].shift(1)
 df.loc[0, 'RL'] = df.loc[0, 'close']
 df.loc[0, 'BL'] = df.loc[0, 'close']
 
 for i in range(1, len(df)):
     curr_o, curr_c, y_c = df.loc[i, 'open'], df.loc[i, 'close'], df.loc[i, 'prev_close']
-    df.loc[i, 'RL'] = y_c if (curr_o > y_c and curr_c > y_c) else df.loc[i-1, 'RL']
-    df.loc[i, 'BL'] = y_c if (curr_o < y_c and curr_c < y_c) else df.loc[i-1, 'BL']
+    prev_rl, prev_bl = df.loc[i-1, 'RL'], df.loc[i-1, 'BL']
+    prev_sig = df.loc[i-1, 'Signal']
+    
+    # 計算 RL (Red Line) 與 BL (Black Line)
+    curr_rl = y_c if (curr_o > y_c and curr_c > y_c) else prev_rl
+    curr_bl = y_c if (curr_o < y_c and curr_c < y_c) else prev_bl
+    df.loc[i, 'RL'] = curr_rl
+    df.loc[i, 'BL'] = curr_bl
+    
+    # 權勢策略狀態判斷 (PDF 邏輯)
+    if curr_c > curr_rl and curr_c > curr_bl:
+        # 多方勢
+        df.loc[i, 'Signal'] = 1
+        df.loc[i, 'Message'] = "🚀【Keep多方勢】" if prev_sig == 1 else "🚀【空方勢轉多方勢】"
+    elif curr_c < curr_rl and curr_c < curr_bl:
+        # 空方勢
+        df.loc[i, 'Signal'] = -1
+        df.loc[i, 'Message'] = "📉【Keep空方勢】" if prev_sig == -1 else "📉【多方勢轉空方勢】"
+    elif min(curr_rl, curr_bl) <= curr_c <= max(curr_rl, curr_bl):
+        # 處於兩線之間
+        if curr_rl <= curr_bl:
+            # RL 在下，BL 在上 -> 趨勢持續 (Case 3, 7)
+            df.loc[i, 'Signal'] = prev_sig
+            if prev_sig == 1:
+                df.loc[i, 'Message'] = "🚀【Keep多方勢】"
+            elif prev_sig == -1:
+                df.loc[i, 'Message'] = "📉【Keep空方勢】"
+            else:
+                df.loc[i, 'Message'] = "⚖️【中性觀望】"
+        else:
+            # BL 在下，RL 在上 -> 斷勢 (Case 4, 8)
+            df.loc[i, 'Signal'] = 0
+            if prev_sig == 1:
+                df.loc[i, 'Message'] = "⚖️【斷多方勢】"
+            elif prev_sig == -1:
+                df.loc[i, 'Message'] = "⚖️【斷空方勢】"
+            else:
+                df.loc[i, 'Message'] = "⚖️【中性觀望】"
+    else:
+        df.loc[i, 'Signal'] = 0
+        df.loc[i, 'Message'] = "⚖️【中性觀望】"
 
 df['RL'] = df['RL'].ffill()
 df['BL'] = df['BL'].ffill()
 
-# 3. 訊號判斷
-df['Signal'] = 0
-df.loc[(df['close'] > df['RL']) & (df['close'] > df['BL']), 'Signal'] = 1
-df.loc[(df['close'] < df['RL']) & (df['close'] < df['BL']), 'Signal'] = -1
+# 3. 訊號點設定 (用於繪圖)
 df['Entry'] = (df['Signal'] == 1) & (df['Signal'].shift(1) != 1)
 df['Exit'] = (df['Signal'] == -1) & (df['Signal'].shift(1) != -1)
 
@@ -200,15 +238,15 @@ public_img_url = upload_memory_to_discord(DISCORD_WEBHOOK_URL, img_buffer)
 if public_img_url:
     print(f"上傳成功: {public_img_url}")
     last = df.iloc[-1]
-    status_icon = "🚀【權勢轉多】" if last['Signal'] == 1 else "📉【權勢轉空】" if last['Signal'] == -1 else "⚖️【中性觀望】"
     
     message = (f"📊 *台指期權勢策略報告*\n"
                f"📅 日期：`{last['date'].strftime('%Y-%m-%d')}`\n"
+               f"📖 開盤： `{last['open']:.0f}`\n"
                f"💰 收盤：`{last['close']:.0f}`\n"
                f"🔴 紅底： `{last['RL']:.0f}`\n"
                f"⚫ 黑頂： `{last['BL']:.0f}`\n"
                f"🧪 RSI： `{last['RSI'].round(1)}`\n"
-               f"🚦 狀態：{status_icon}")
+               f"🚦 狀態：{last['Message']}")
     
     send_telegram_with_photo_url(TG_TOKEN, TG_CHAT_ID, message, public_img_url)
     print("✅ Telegram 報告發送完畢。")
