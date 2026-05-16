@@ -1,5 +1,5 @@
 # Power_Strategy
-此專案是基於永豐銀行 Shioagi API開發的權勢策略自動偵測。每天13:47準時發車
+此專案是基於永豐銀行 Shioagi API開發的權勢策略自動偵測。每天13:47準時發車發送訊息到Telegram
 
 # Required app / API
 - Telegram API
