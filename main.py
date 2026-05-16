@@ -1,4 +1,4 @@
-##### Shioaji 權勢策略 0509 Gemini 修正版本
+##### Shioaji 權勢策略_台指期 0516 Gemini 修正版本(加入小三弟)
 
 import shioaji as sj
 import pandas as pd
@@ -102,24 +102,22 @@ std = df['close'].rolling(window=20).std()
 df['Upper'] = df['20MA'] + (std * 2)
 df['Lower'] = df['20MA'] - (std * 2)
 
-# RSI (N=3)
+# RSI (N=3, N=6)
 delta = df['close'].diff()
-# gain = (delta.where(delta > 0, 0)).rolling(window=3).mean()
-# loss = (-delta.where(delta < 0, 0)).rolling(window=3).mean()
-# df['RSI'] = 100 - (100 / (1 + (gain / loss)))
-# 分離漲幅 (Gain) 與跌幅 (Loss)
 gain = delta.where(delta > 0, 0)
 loss = -delta.where(delta < 0, 0)
-# 使用 EWM 計算威爾德平滑平均
-# Wilder 的平滑係數 alpha = 1 / window
-# 在 pandas ewm 中，這等同於 adjust=False 且 alpha=1/window
-# RSI (N=3)
-window = 3
-avg_gain = gain.ewm(alpha=1/window, min_periods=window, adjust=False).mean()
-avg_loss = loss.ewm(alpha=1/window, min_periods=window, adjust=False).mean()
-# 計算 RS 與 RSI
-rs = avg_gain / avg_loss
-df['RSI'] = 100 - (100 / (1 + rs))
+
+# RSI 3
+window3 = 3
+avg_gain3 = gain.ewm(alpha=1/window3, min_periods=window3, adjust=False).mean()
+avg_loss3 = loss.ewm(alpha=1/window3, min_periods=window3, adjust=False).mean()
+df['RSI3'] = 100 - (100 / (1 + (avg_gain3 / avg_loss3)))
+
+# RSI 6
+window6 = 6
+avg_gain6 = gain.ewm(alpha=1/window6, min_periods=window6, adjust=False).mean()
+avg_loss6 = loss.ewm(alpha=1/window6, min_periods=window6, adjust=False).mean()
+df['RSI6'] = 100 - (100 / (1 + (avg_gain6 / avg_loss6)))
 
 # MACD
 ema12 = df['close'].ewm(span=12, adjust=False).mean()
@@ -215,8 +213,10 @@ ax1.grid(alpha=0.2)
 ax2.bar(x_idx, df['MACD_Hist'], color=['red' if x > 0 else 'green' for x in df['MACD_Hist']], alpha=0.5)
 ax3.bar(x_idx, df['volume'], color='gray', alpha=0.3)
 ax3_rsi = ax3.twinx()
-ax3_rsi.plot(x_idx, df['RSI'], color='purple', lw=1.2)
+ax3_rsi.plot(x_idx, df['RSI3'], color='purple', lw=1.2, label='RSI3')
+ax3_rsi.plot(x_idx, df['RSI6'], color='orange', lw=1.2, label='RSI6')
 ax3_rsi.set_ylim(0, 100)
+ax3_rsi.legend(loc='upper right')
 
 # X 軸設定
 step = max(1, len(df) // 10)
@@ -245,7 +245,8 @@ if public_img_url:
                f"💰 收盤：`{last['close']:.0f}`\n"
                f"🔴 紅底： `{last['RL']:.0f}`\n"
                f"⚫ 黑頂： `{last['BL']:.0f}`\n"
-               f"🧪 RSI： `{last['RSI'].round(1)}`\n"
+               f"🧪 RSI3/6： `{last['RSI3'].round(2)} / {last['RSI6'].round(2)}`\n"
+               f"📊 差值(3-6)： `{ (last['RSI3'] - last['RSI6']):.2f}`\n"
                f"🚦 狀態：{last['Message']}")
     
     send_telegram_with_photo_url(TG_TOKEN, TG_CHAT_ID, message, public_img_url)
