@@ -20,7 +20,7 @@ https://ai.sinotrade.com.tw/python/Main/index.aspx#pag4
 
 ## 📊 系統邏輯說明 (System Logic)
 
-基於 `權勢策略.pdf` 與 `main.py` 的核心運算邏輯，系統依據收盤價（Close）與兩條動態線 **RL (Red Line)** 與 **BL (Black Line)** 的相對位置來決定趨勢：
+基於 `權勢策略` 與 `main.py` 的核心運算邏輯，系統依據收盤價（Close）與兩條動態線 **RL (Red Line)** 與 **BL (Black Line)** 的相對位置來決定趨勢：
 
 ### 1. 指標定義
 - **RL (Red Line)**: 當今日開盤與收盤皆高於昨日收盤時，更新為昨日收盤價；否則維持前一值。
