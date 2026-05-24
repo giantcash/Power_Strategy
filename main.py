@@ -1,11 +1,11 @@
-##### Shioaji 權勢策略_台指期 0516 Gemini 修正版本(加入小三弟)
+##### Shioaji 權勢策略_台指期 0524 Gemini 修正版本加入夜盤判斷
 
 import shioaji as sj
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import requests
 import os
 import io
@@ -23,6 +23,16 @@ SECRET_KEY = os.getenv("SECRET_KEY", "你的_SECRET_KEY")
 # ==========================================
 # --- 功能函數區 ---
 # ==========================================
+
+def get_trading_date(ts):
+    """計算交易日：15:00 後歸為下一交易日 (週五夜盤歸週一)"""
+    if ts.time() >= time(15, 0):
+        days_to_add = 3 if ts.weekday() == 4 else 1
+        return (ts + timedelta(days=days_to_add)).date()
+    elif ts.time() <= time(5, 0):
+        return ts.date()
+    else:
+        return ts.date()
 
 def upload_memory_to_discord(webhook_url, img_bytes, filename="tx_daily_report.png"):
     """將記憶體中的圖片數據傳送到 Discord 並獲取連結"""
@@ -73,8 +83,8 @@ api = sj.Shioaji()
 api.login(api_key=API_KEY, secret_key=SECRET_KEY)
 
 # 抓取近 60 天資料
-start_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
-end_date = datetime.now().strftime('%Y-%m-%d')
+start_date = (now - timedelta(days=60)).strftime('%Y-%m-%d')
+end_date = now.strftime('%Y-%m-%d')
 contract = api.Contracts.Futures.TXF.TXFR1  # 台指近月連續
 
 print("正在從 Shioaji 抓取資料...")
@@ -82,19 +92,32 @@ kbars = api.kbars(contract, start=start_date, end=end_date)
 df_raw = pd.DataFrame({**kbars})
 df_raw['ts'] = pd.to_datetime(df_raw['ts'])
 
-# --- 轉換為日線邏輯 (僅取日盤 08:45 ~ 13:45) ---
-df = df_raw[(df_raw['ts'].dt.time >= datetime.strptime("08:45", "%H:%M").time()) & 
-            (df_raw['ts'].dt.time <= datetime.strptime("13:45", "%H:%M").time())].copy()
+# --- 交易日邏輯與資料過濾 ---
+# 1. 計算每根 K 棒的交易日
+df_raw['trading_date'] = df_raw['ts'].apply(get_trading_date)
+last_trading_date = df_raw['trading_date'].max()
 
-df = df.resample('1D', on='ts').agg({
+# 2. 雙重過濾：歷史維持日盤 (08:45-13:45)，當前交易日包含夜盤 (15:00-05:00)
+is_last_td = (df_raw['trading_date'] == last_trading_date)
+is_day_session = (df_raw['ts'].dt.time >= time(8, 45)) & (df_raw['ts'].dt.time <= time(13, 45))
+is_night_session = (df_raw['ts'].dt.time >= time(15, 0)) | (df_raw['ts'].dt.time <= time(5, 0))
+
+df = df_raw[
+    (~is_last_td & is_day_session) | 
+    (is_last_td & (is_day_session | is_night_session))
+].copy()
+
+# 3. 聚合為日線 (以交易日分群)
+df = df.groupby('trading_date').agg({
     'Open': 'first',
     'High': 'max',
     'Low': 'min',
     'Close': 'last',
     'Volume': 'sum'
-}).dropna().reset_index()
+}).reset_index()
 
-df.rename(columns={'ts': 'date', 'High': 'max', 'Low': 'min', 'Open': 'open', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+df.rename(columns={'trading_date': 'date', 'High': 'max', 'Low': 'min', 'Open': 'open', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+df['date'] = pd.to_datetime(df['date'])
 
 # 2. 技術指標計算
 df['20MA'] = df['close'].rolling(window=20).mean()
