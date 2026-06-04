@@ -1,51 +1,55 @@
-# Power_Strategy
-此專案是基於永豐銀行 Shioagi API開發的權勢策略自動偵測。每天13:47準時發車發送訊息到Telegram
+# Power_Strategy 權勢策略自動偵測系統
 
-# Required app / API
-- Telegram API
-- Discord API
-- Shioagi API
-
-# SOP-Telegram API(Max的程式語言筆記) 
-https://stackoverflow.max-everyday.com/2025/12/telegram-notification-bot/
-
-# SOP-Discord API
-https://support.discord.com/hc/zh-tw/articles/228383668-%E4%BD%BF%E7%94%A8%E7%B6%B2%E7%B5%A1%E9%89%A4%E6%89%8B-Webhooks
-
-
-# SOP-Shioagi API(永豐銀行)
-https://ai.sinotrade.com.tw/python/Main/index.aspx#pag4
+本專案基於永豐金證券 `Shioaji API` 開發，旨在自動化追蹤台指期 (TXF) 與台積電期 (CDF) 的「權勢策略」趨勢。系統每日定時分析市場數據，並透過 Telegram 與 Discord 發送圖文並茂的分析報告。
 
 ---
 
-## 📊 系統邏輯說明 (System Logic)
+## 🚀 核心功能 (Key Features)
 
-基於 `權勢策略` 與 `main.py` 的核心運算邏輯，系統依據收盤價（Close）與兩條動態線 **RL (Red Line)** 與 **BL (Black Line)** 的相對位置來決定趨勢：
+- **自動化趨勢偵測**：每日 13:47 自動執行，精確計算 RL (紅底線) 與 BL (黑頂線)。
+- **多商品支援**：同步監控台指期連續合約 (`main_settlement.py`) 與台積電期貨 (`main_TSMC.py`)。
+- **視覺化分析圖表**：
+    - **結算價標註**：自動標記過去三個月的換倉成本（結算價），輔助判斷長期支撐壓力。
+    - **佈局優化**：移除冗餘指標（如 MACD），放大 K 線主體，提供更佳的視覺體驗。
+    - **技術指標輔助**：整合 20MA、RSI3、RSI6 等關鍵數據。
+- **即時通知系統**：
+    - **Telegram**：傳送包含策略狀態（多/空/斷勢）與關鍵數據的摘要訊息。
+    - **Discord**：作為圖表託管中心，確保圖片能穩定顯示於行動裝置。
+
+---
+
+## 📊 策略邏輯 (Strategy Logic)
+
+系統依據收盤價 (Close) 與動態線 **RL (Red Line)** 與 **BL (Black Line)** 的相對位置決定趨勢：
 
 ### 1. 指標定義
-- **RL (Red Line)**: 當今日開盤與收盤皆高於昨日收盤時，更新為昨日收盤價；否則維持前一值。
-- **BL (Black Line)**: 當今日開盤與收盤皆低於昨日收盤時，更新為昨日收盤價；否則維持前一值。
+- **RL (Red Line)**: 
+    - 若 `Open > Yesterday_Close` 且 `Close > Yesterday_Close`，則 `RL = Yesterday_Close`。
+    - 否則維持前值。
+- **BL (Black Line)**: 
+    - 若 `Open < Yesterday_Close` 且 `Close < Yesterday_Close`，則 `BL = Yesterday_Close`。
+    - 否則維持前值。
 
-### 2. 策略邏輯圖
+### 2. 趨勢判斷
+- **🚀 多方勢**：`Close > RL` 且 `Close > BL`。
+- **📉 空方勢**：`Close < RL` 且 `Close < BL`。
+- **⚖️ 斷勢/觀望**：價格進入兩線之間或發生特定交叉邏輯（詳見 PDF 文件）。
+
 ![策略邏輯圖](strategy.png)
-
 
 ---
 
-## 🛠️ Synology NAS 部署指南 (SOP)
+## 🛠️ 部署指南 (Deployment)
 
-### 1. 使用 Container Manager (Docker Compose) 架設
-Synology 的 Container Manager 支持「專案 (Project)」功能，可以直接使用 YAML 檔案部署環境。
+### 環境變數設定
+請在系統中設定以下環境變數或修改程式碼：
+- `API_KEY` / `SECRET_KEY`: 永豐 Shioaji API 憑證。
+- `TG_TOKEN` / `TG_CHAT_ID`: Telegram Bot 資訊。
+- `DISCORD_WEBHOOK`: Discord Webhook 連結。
 
-**操作步驟：**
-1. 開啟 **Container Manager**。
-2. 點選左側 **「專案 (Project)」** -> **「新增」**。
-3. 輸入專案名稱（例如：`power-strategy`），並選擇一個存放路徑。
-4. 來源選擇 **「建立 docker-compose.yml」**。
-5. 貼入下方的 YAML 範例，並根據您的 API Key 進行修改。
-6. 完成後點選下一步並啟動。
-
-#### **YAML 範例 (`docker-compose.yaml`)**
+### Synology NAS (Docker) 部署
+1. 開啟 **Container Manager** -> **專案** -> **新增**。
+2. 建立 `docker-compose.yaml`：
 ```yaml
 version: '3.8'
 services:
@@ -54,7 +58,6 @@ services:
     container_name: power_strategy_app
     volumes:
       - /volume1/docker/power_strategy:/app
-    working_dir: /app
     environment:
       - TZ=Asia/Taipei
       - DISCORD_WEBHOOK=你的_DISCORD_WEBHOOK_URL
@@ -62,25 +65,20 @@ services:
       - TG_CHAT_ID=你的_TG_CHAT_ID
       - API_KEY=你的_API_KEY
       - SECRET_KEY=你的_SECRET_KEY
+
     command: >
-      sh -c "pip install --no-cache-dir shioaji pandas numpy matplotlib requests && python main.py"
+      sh -c "pip install --no-cache-dir shioaji pandas numpy matplotlib requests && python main_settlement.py && python main_TSMC.py"
     restart: "no"
 ```
-
-### 2. 設定 Synology 「任務排程」定時執行
-由於本策略為每天 13:47 執行一次，建議透過排程觸發 Container。
-
-**操作步驟：**
-1. 前往 **控制台 (Control Panel)** -> **任務排程 (Task Scheduler)**。
-2. 點選 **「新增」** -> **「排程的任務」** -> **「使用者定義的指令碼」**。
-3. **常規**：任務名稱輸入 `Run_Power_Strategy`，使用者選擇 `root`。
-4. **排程**：設定為 **每天** 執行，時間設定在 **13:47**。
-5. **任務設定**：在「執行指令」框中輸入以下指令：
-   ```bash
-   # 進入專案目錄並啟動容器
-   cd /volume1/docker/power_strategy && /usr/local/bin/docker-compose up
-   ```
-   *(註：路徑請根據您實際存放 `docker-compose.yml` 的位置調整)*
+3. 於 **任務排程** 設定每日 13:47 執行 `docker-compose up`。
 
 ---
-*本專案僅供技術交流與參考，投資有風險，請謹慎評估。*
+
+## 🔗 相關資源 (Resources)
+
+- **Shioaji API 文件**: [永豐 Python API](https://ai.sinotrade.com.tw/python/Main/index.aspx)
+- **Telegram Bot SOP**: [Max 的程式語言筆記](https://stackoverflow.max-everyday.com/2025/12/telegram-notification-bot/)
+- **Discord Webhook SOP**: [Discord 官方支援](https://support.discord.com/hc/zh-tw/articles/228383668)
+
+---
+*免責聲明：本專案僅供技術研究與參考，不構成任何投資建議。投資有風險，請獨立評估並自負盈虧。*
