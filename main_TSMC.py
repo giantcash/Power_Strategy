@@ -1,15 +1,16 @@
-##### Shioaji 權勢策略_台積電期 0516 Gemini 修正版本(加入小三弟)
+##### Shioaji 權勢策略_台積電期 0604 加入換倉成本版本
 
 import shioaji as sj
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time, date
 import requests
 import os
 import io
 import sys
+import calendar
 
 # ==========================================
 # --- 核心邏輯設定區 (建議由環境變數讀取) ---
@@ -23,6 +24,28 @@ SECRET_KEY = os.getenv("SECRET_KEY", "你的_SECRET_KEY")
 # ==========================================
 # --- 功能函數區 ---
 # ==========================================
+
+def get_settlement_day(year: int, month: int) -> date:
+    """台指期/個股期結算日：每月第三個星期三"""
+    cal = calendar.monthcalendar(year, month)
+    wednesdays = [w[calendar.WEDNESDAY] for w in cal if w[calendar.WEDNESDAY] != 0]
+    return date(year, month, wednesdays[2])
+
+def get_recent_settlement_days(n: int) -> list[date]:
+    """取得最近 n 個結算日（不超過今日），由舊到新排序"""
+    today = date.today()
+    results: list[date] = []
+    year, month = today.year, today.month
+
+    while len(results) < n:
+        sd = get_settlement_day(year, month)
+        if sd <= today:
+            results.append(sd)
+        month -= 1
+        if month == 0:
+            year -= 1
+            month = 12
+    return sorted(results)
 
 def upload_memory_to_discord(webhook_url, img_bytes, filename="tsmc_daily_report.png"):
     """將記憶體中的圖片數據傳送到 Discord 並獲取連結"""
@@ -72,9 +95,9 @@ if now.weekday() >= 5:
 api = sj.Shioaji()
 api.login(api_key=API_KEY, secret_key=SECRET_KEY)
 
-# 抓取近 60 天資料
-start_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
-end_date = datetime.now().strftime('%Y-%m-%d')
+# 抓取近 100 天資料 (確保涵蓋 3 個月結算日)
+start_date = (now - timedelta(days=100)).strftime('%Y-%m-%d')
+end_date = now.strftime('%Y-%m-%d')
 contract = api.Contracts.Futures.CDF.CDFR1  # 台積電近月連續
 
 print("正在從 Shioaji 抓取資料 (TSMC)...")
@@ -83,8 +106,8 @@ df_raw = pd.DataFrame({**kbars})
 df_raw['ts'] = pd.to_datetime(df_raw['ts'])
 
 # --- 轉換為日線邏輯 (僅取日盤 08:45 ~ 13:45) ---
-df = df_raw[(df_raw['ts'].dt.time >= datetime.strptime("08:45", "%H:%M").time()) & 
-            (df_raw['ts'].dt.time <= datetime.strptime("13:45", "%H:%M").time())].copy()
+df = df_raw[(df_raw['ts'].dt.time >= time(8, 45)) & 
+            (df_raw['ts'].dt.time <= time(13, 45))].copy()
 
 df = df.resample('1D', on='ts').agg({
     'Open': 'first',
@@ -119,7 +142,7 @@ avg_gain6 = gain.ewm(alpha=1/window6, min_periods=window6, adjust=False).mean()
 avg_loss6 = loss.ewm(alpha=1/window6, min_periods=window6, adjust=False).mean()
 df['RSI6'] = 100 - (100 / (1 + (avg_gain6 / avg_loss6)))
 
-# MACD
+# MACD (保留計算但繪圖移除)
 ema12 = df['close'].ewm(span=12, adjust=False).mean()
 ema26 = df['close'].ewm(span=26, adjust=False).mean()
 df['MACD_Hist'] = (ema12 - ema26) - (ema12 - ema26).ewm(span=9, adjust=False).mean()
@@ -179,11 +202,33 @@ df['BL'] = df['BL'].ffill()
 df['Entry'] = (df['Signal'] == 1) & (df['Signal'].shift(1) != 1)
 df['Exit'] = (df['Signal'] == -1) & (df['Signal'].shift(1) != -1)
 
+# --- 結算價資料點準備 ---
+settlement_dates = get_recent_settlement_days(3)
+settlement_info = []
+for sd in settlement_dates:
+    sd_ts = pd.Timestamp(sd)
+    # 在 df 中尋找最接近該結算日的交易資料 (向後找最多 3 天，以防假日)
+    for delta in range(0, 4):
+        target_date = sd_ts + pd.Timedelta(days=delta)
+        mask = df['date'].dt.date == target_date.date()
+        if mask.any():
+            idx = df.index[mask][0]
+            settlement_info.append({
+                'idx': idx,
+                'date_str': sd.strftime('%m/%d'),
+                'price': df.loc[idx, 'close'],
+                'high': df.loc[idx, 'max']
+            })
+            break
+
 # 4. 繪圖與記憶體處理
 print("繪製圖表中...")
-fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 12), sharex=True, 
-                                     gridspec_kw={'height_ratios': [3, 1, 1]})
+# 移除 MACD 圖表，改為 2 個子圖
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), sharex=True, 
+                                     gridspec_kw={'height_ratios': [3, 1]})
 x_idx = np.arange(len(df))
+y_range = df['max'].max() - df['min'].min()
+label_offset = y_range * 0.05
 
 # 主圖 K 線與策略線
 for i in x_idx:
@@ -197,26 +242,38 @@ ax1.step(x_idx, df['RL'], color='#e91e63', label='RL', where='post', lw=1.5)
 ax1.step(x_idx, df['BL'], color='black', label='BL', where='post', lw=1.5)
 
 # 標註進出場 (針對 TSMC 調整 offset)
-ax1.scatter(np.where(df['Entry'])[0], df.loc[df['Entry'], 'min']-5, marker='^', color='orange', s=150, label='Up')
-ax1.scatter(np.where(df['Exit'])[0], df.loc[df['Exit'], 'max']+5, marker='v', color='darkblue', s=150, label='Down')
+ax1.scatter(np.where(df['Entry'])[0], df.loc[df['Entry'], 'min']-5, marker='^', color='orange', s=150, label='In')
+ax1.scatter(np.where(df['Exit'])[0], df.loc[df['Exit'], 'max']+5, marker='v', color='darkblue', s=150, label='Out')
 
-ax1.set_title(f"TSMC Continuous - Power Strategy Daily Analysis")
+# --- 標註結算價 (Settlement) ---
+colors = ['#BBDEFB', '#64B5F6', '#1565C0'] # 淺藍到深藍
+for i, info in enumerate(settlement_info):
+    color = colors[min(i, len(colors)-1)]
+    # 垂直線
+    ax1.axvline(x=info['idx'], color=color, linestyle='--', alpha=0.6, lw=1.2)
+    # 水平延伸線 (從結算日延伸到最右側)
+    ax1.hlines(y=info['price'], xmin=info['idx'], xmax=len(df)-1, color=color, linestyle='-', alpha=0.7, lw=3)
+    # 文字標籤 (顯示在該日最高價上方)
+    ax1.text(info['idx'], info['high'] + label_offset, f"{info['date_str']}\nSettle\n{info['price']:.1f}", 
+             color='navy', fontsize=12, fontweight='bold', va='bottom', ha='center',
+             bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', edgecolor=color, alpha=0.8))
+
+ax1.set_title(f"TSMC Continuous - Power Strategy Daily Analysis (with Settlement)")
 ax1.legend(loc='upper left', ncol=2)
 ax1.grid(alpha=0.2)
 
-# MACD & RSI
-ax2.bar(x_idx, df['MACD_Hist'], color=['red' if x > 0 else 'green' for x in df['MACD_Hist']], alpha=0.5)
-ax3.bar(x_idx, df['volume'], color='gray', alpha=0.3)
-ax3_rsi = ax3.twinx()
-ax3_rsi.plot(x_idx, df['RSI3'], color='purple', lw=1.2, label='RSI3')
-ax3_rsi.plot(x_idx, df['RSI6'], color='orange', lw=1.2, label='RSI6')
-ax3_rsi.set_ylim(0, 100)
-ax3_rsi.legend(loc='upper right')
+# 成交量與 RSI (移除 MACD 子圖)
+ax2.bar(x_idx, df['volume'], color='gray', alpha=0.3)
+ax2_rsi = ax2.twinx()
+ax2_rsi.plot(x_idx, df['RSI3'], color='purple', lw=1.2, label='RSI3')
+ax2_rsi.plot(x_idx, df['RSI6'], color='orange', lw=1.2, label='RSI6')
+ax2_rsi.set_ylim(0, 100)
+ax2_rsi.legend(loc='upper left')
 
 # X 軸設定
 step = max(1, len(df) // 10)
-ax3.set_xticks(x_idx[::step])
-ax3.set_xticklabels(df['date'].dt.strftime('%m-%d').iloc[::step], rotation=45)
+ax2.set_xticks(x_idx[::step])
+ax2.set_xticklabels(df['date'].dt.strftime('%m-%d').iloc[::step], rotation=45)
 
 plt.tight_layout()
 
@@ -234,7 +291,8 @@ if public_img_url:
     print(f"上傳成功: {public_img_url}")
     last = df.iloc[-1]
     
-    message = (f"📊 *台積電期權勢策略報告*\n"
+    # Telegram 訊息保持原樣
+    message = (f"📊 *台積電期權勢報告*\n"
                f"📅 日期：`{last['date'].strftime('%Y-%m-%d')}`\n"
                f"📖 開盤： `{last['open']:.1f}`\n"
                f"💰 收盤：`{last['close']:.1f}`\n"
