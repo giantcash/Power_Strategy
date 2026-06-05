@@ -1,4 +1,4 @@
-##### Shioaji 權勢策略_台指期 0604 加入換倉成本版本
+##### Shioaji 權勢策略_台指期 0605 加入換倉成本版本(修正日盤三段資料)
 
 import shioaji as sj
 import pandas as pd
@@ -120,14 +120,26 @@ df_raw['ts'] = pd.to_datetime(df_raw['ts'])
 df_raw['trading_date'] = df_raw['ts'].apply(get_trading_date)
 last_trading_date = df_raw['trading_date'].max()
 
-# 2. 雙重過濾：歷史維持日盤 (08:45-13:45)，當前交易日包含夜盤 (15:00-05:00)
+# 2. 雙重過濾：歷史維持日盤 (08:45-13:45)，當前交易日資料依時間分段處理
 is_last_td = (df_raw['trading_date'] == last_trading_date)
 is_day_session = (df_raw['ts'].dt.time >= time(8, 45)) & (df_raw['ts'].dt.time <= time(13, 45))
-is_night_session = (df_raw['ts'].dt.time >= time(15, 0)) | (df_raw['ts'].dt.time <= time(5, 0))
+
+now_time = now.time()
+if time(8, 45) <= now_time <= time(13, 45):
+    # (1) 08:45 <= 現在時間 <= 13:45, 當天資料請取 08:46 1K 資料
+    current_target_mask = (df_raw['ts'].dt.time == time(8, 46))
+elif time(13, 46) <= now_time <= time(15, 0):
+    # (2) 13:46 <= 現在時間 <= 15:00, 當天資料請取當天 08:45~13:45 日盤全部資料
+    current_target_mask = is_day_session
+elif time(15, 1) <= now_time or now_time <= time(8, 44):
+    # (3) 15:01 <= 現在時間 <= 24:00 (含凌晨), 當天資料請取當天 15:01 1K 資料
+    current_target_mask = (df_raw['ts'].dt.time == time(15, 1))
+else:
+    current_target_mask = is_day_session
 
 df = df_raw[
     (~is_last_td & is_day_session) | 
-    (is_last_td & (is_day_session | is_night_session))
+    (is_last_td & current_target_mask)
 ].copy()
 
 # 3. 聚合為日線 (以交易日分群)
