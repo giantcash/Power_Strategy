@@ -331,7 +331,28 @@ if public_img_url:
     print(f"上傳成功: {public_img_url}")
     last = df.iloc[-1]
     
-    # Telegram 訊息保持原樣，不新增結算資訊
+    # --- 關卡計算 (向上與向下各 5 關) ---
+    current_close = last['close']
+    unique_levels = []
+    seen_prices = set()
+    # 由新到舊遍歷，同一價格只取最新的一筆描述 (排除當天資料，從前一天開始找)
+    for i in range(len(df)-2, -1, -1):
+        row = df.iloc[i]
+        d_str = row['date'].strftime('%m/%d')
+        for p, label in [(row['open'], "開盤價"), (row['close'], "收盤價"), (row['max'], "最高點"), (row['min'], "最低點")]:
+            if p not in seen_prices:
+                unique_levels.append({'price': p, 'desc': f"{d_str} {label}"})
+                seen_prices.add(p)
+    
+    # 向上 5 關 (高於目前收盤，由低到高排)
+    up_levels = sorted([l for l in unique_levels if l['price'] > current_close], key=lambda x: x['price'])[:5]
+    # 向下 5 關 (低於目前收盤，由高到低排)
+    down_levels = sorted([l for l in unique_levels if l['price'] < current_close], key=lambda x: x['price'], reverse=True)[:5]
+    
+    up_msg = "\n".join([f"{i+1}. {l['desc']}: `{l['price']:.0f}`" for i, l in enumerate(up_levels)])
+    down_msg = "\n".join([f"{i+1}. {l['desc']}: `{l['price']:.0f}`" for i, l in enumerate(down_levels)])
+
+    # Telegram 訊息
     message = (f"📊 *台指期權勢策略報告*\n"
                f"📅 日期：`{last['date'].strftime('%Y-%m-%d')}`\n"
                f"📖 開盤： `{last['open']:.0f}`\n"
@@ -340,7 +361,9 @@ if public_img_url:
                f"⚫ 黑頂： `{last['BL']:.0f}`\n"
                f"🧪 RSI3/6： `{last['RSI3'].round(2)} / {last['RSI6'].round(2)}`\n"
                f"📊 差值(3-6)： `{ (last['RSI3'] - last['RSI6']):.2f}`\n"
-               f"🚦 狀態：{last['Message']}")
+               f"🚦 狀態：{last['Message']}\n\n"
+               f"📈 *向上5關卡*:\n{up_msg}\n\n"
+               f"📉 *向下5關卡*:\n{down_msg}")
     
     send_telegram_with_photo_url(TG_TOKEN, TG_CHAT_ID, message, public_img_url)
     print("✅ Telegram 報告發送完畢。")
