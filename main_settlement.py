@@ -1,4 +1,4 @@
-##### Shioaji 權勢策略_台指期 0605 加入換倉成本版本(修正日盤三段資料)
+##### Shioaji 權勢策略_台指期 0605 加入換倉成本 & 關卡版本(修正日盤三段資料)
 
 import shioaji as sj
 import pandas as pd
@@ -191,14 +191,29 @@ df['prev_close'] = df['close'].shift(1)
 df.loc[0, 'RL'] = df.loc[0, 'close']
 df.loc[0, 'BL'] = df.loc[0, 'close']
 
+now_time = now.time()
+
 for i in range(1, len(df)):
     curr_o, curr_c, y_c = df.loc[i, 'open'], df.loc[i, 'close'], df.loc[i, 'prev_close']
     prev_rl, prev_bl = df.loc[i-1, 'RL'], df.loc[i-1, 'BL']
     prev_sig = df.loc[i-1, 'Signal']
     
-    # 計算 RL (Red Line) 與 BL (Black Line)
-    curr_rl = y_c if (curr_o > y_c and curr_c > y_c) else prev_rl
-    curr_bl = y_c if (curr_o < y_c and curr_c < y_c) else prev_bl
+    # 針對最後一根 K 棒 (當前交易日) 進行時段邏輯判斷
+    is_last_bar = (i == len(df) - 1)
+    
+    if is_last_bar:
+        if (time(8, 45) <= now_time <= time(13, 45)) or (time(15, 1) <= now_time or now_time <= time(8, 44)):
+            # 1. 08:45-13:45 或 15:01-24:00: RL/BL 直接使用前一根K棒的RL/BL
+            curr_rl, curr_bl = prev_rl, prev_bl
+        else:
+            # 2. 13:46-15:00: 套用目前的權勢策略指標計算
+            curr_rl = y_c if (curr_o > y_c and curr_c > y_c) else prev_rl
+            curr_bl = y_c if (curr_o < y_c and curr_c < y_c) else prev_bl
+    else:
+        # 歷史資料正常計算
+        curr_rl = y_c if (curr_o > y_c and curr_c > y_c) else prev_rl
+        curr_bl = y_c if (curr_o < y_c and curr_c < y_c) else prev_bl
+        
     df.loc[i, 'RL'] = curr_rl
     df.loc[i, 'BL'] = curr_bl
     
