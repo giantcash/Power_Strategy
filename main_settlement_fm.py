@@ -120,9 +120,13 @@ api.login(api_key=API_KEY, secret_key=SECRET_KEY)
 # 1. 歷史 K 棒: 使用 Findmind API
 print("正在從 Findmind 抓取歷史資料...")
 now_date = now.date()
-yesterday = now_date - timedelta(days=1)
 start_date_fm = (now_date - timedelta(days=110)).strftime('%Y-%m-%d')
-end_date_fm = yesterday.strftime('%Y-%m-%d')
+
+# 現在時間小於 15:00, end_date_fm 請用昨天; 大於等於 15:00, end_date_fm 請用今天
+if now.time() < time(15, 0):
+    end_date_fm = (now_date - timedelta(days=1)).strftime('%Y-%m-%d')
+else:
+    end_date_fm = now_date.strftime('%Y-%m-%d')
 
 fm_loader = DataLoader()
 fm_loader.login_by_token(api_token=FINDMIND_TOKEN)
