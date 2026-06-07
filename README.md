@@ -80,7 +80,7 @@ services:
       - FINDMIND_TOKEN=你的_FINDMIND_TOKEN
 
     command: >
-      sh -c "pip install --no-cache-dir shioaji pandas numpy matplotlib requests && python main_settlement.py && python main_TSMC.py"
+      sh -c "pip install --no-cache-dir shioaji pandas numpy matplotlib requests Findmind tqdm && python main_settlement_fm.py"
     restart: "no"
 ```
 3. 於 **任務排程** 設定每日 13:47 執行 `docker-compose up`。
