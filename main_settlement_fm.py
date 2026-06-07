@@ -422,8 +422,16 @@ if public_img_url:
     up_msg = "\n".join([f"{i+1}. {l['desc']}: `{l['price']:.0f}`" for i, l in enumerate(up_levels)])
     down_msg = "\n".join([f"{i+1}. {l['desc']}: `{l['price']:.0f}`" for i, l in enumerate(down_levels)])
 
+    # --- 報告標題判斷 ---
+    if time(8, 45) <= now_time <= time(13, 45):
+        report_title = "台指期權勢策略報告(日盤開盤)"
+    elif time(13, 46) <= now_time <= time(15, 0):
+        report_title = "台指期權勢策略報告(收盤)"
+    else:
+        report_title = "台指期權勢策略報告(夜盤開盤)"
+
     # Telegram 訊息
-    message = (f"📊 *台指期權勢策略報告*\n"
+    message = (f"📊 *{report_title}*\n"
                f"📅 日期：`{last['date'].strftime('%Y-%m-%d')}`\n"
                f"📖 開盤： `{last['open']:.0f}`\n"
                f"💰 收盤：`{last['close']:.0f}`\n"
