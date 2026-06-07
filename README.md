@@ -7,9 +7,9 @@
 ## 🚀 核心功能 (Key Features)
 
 - **自動化趨勢偵測**：每日 13:47 自動執行，精確計算 RL (紅底線) 與 BL (黑頂線)。
-- **多商品支援**：同步監控台指期連續合約 (`main_settlement.py`) 與台積電期貨 (`main_TSMC.py`)。
+- **多商品支援**：同步監控台指期連續合約 (`main_settlement_fm.py`) 與台積電期貨 (`main_TSMC.py`)。
 - **視覺化分析圖表**：
-    - **結算價標註**：自動標記過去三個月的換倉成本（結算價），輔助判斷長期支撐壓力。
+    - **結算價標註**：自動標記過去三個月的換倉成本（結算價），輔助判斷長期支撐壓力。(使用Findmind抓取正確結算價)
     - **佈局優化**：移除冗餘指標（如 MACD），放大 K 線主體，提供更佳的視覺體驗。
     - **技術指標輔助**：整合 20MA、RSI3、RSI6 等關鍵數據。
 - **即時通知系統**：
@@ -22,6 +22,7 @@
 
 | 檔案 / 資料夾 | 說明 |
 | :--- | :--- |
+| `main_settlement_fm.py` | **核心主程式**(台指期版本, Findmind找歷史結算價)。 |
 | `main_settlement.py` | **核心主程式**(台指期版本)。 |
 | `main_TSMC.py` | **核心主程式**(台積電期版本)。 |
 | `main.py` | 舊版本(可忽略)。 |
@@ -76,6 +77,7 @@ services:
       - TG_CHAT_ID=你的_TG_CHAT_ID
       - API_KEY=你的_API_KEY
       - SECRET_KEY=你的_SECRET_KEY
+      - FINDMIND_TOKEN=你的_FINDMIND_TOKEN
 
     command: >
       sh -c "pip install --no-cache-dir shioaji pandas numpy matplotlib requests && python main_settlement.py && python main_TSMC.py"
