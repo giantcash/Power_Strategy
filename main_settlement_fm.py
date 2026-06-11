@@ -1,5 +1,4 @@
-##### Shioaji 權勢策略_台指期 0606 加入換倉成本 & 關卡版本(Findmind抓取歷史結算價)
-import shioaji as sj
+##### Shioaji 權勢策略_台指期 0611 fix drop_duplicates keep = 'first'
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -204,7 +203,7 @@ else:
 
 # 合併資料
 df = pd.concat([df_fm, df_sj_daily], ignore_index=True)
-df = df.drop_duplicates(subset=['date'], keep='last').sort_values('date').reset_index(drop=True)
+df = df.drop_duplicates(subset=['date'], keep='first').sort_values('date').reset_index(drop=True)
 
 # 確保只留近 100 天
 df = df.tail(100).reset_index(drop=True)
