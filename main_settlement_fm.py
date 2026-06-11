@@ -1,4 +1,5 @@
 ##### Shioaji 權勢策略_台指期 0611 fix drop_duplicates keep = 'first'
+import shioaji as sj
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
