@@ -24,7 +24,8 @@
 | :--- | :--- |
 | `main_settlement_fm.py` | **核心主程式**(台指期版本, Findmind找歷史結算價)。 |
 | `main_settlement.py` | **核心主程式**(台指期版本)。 |
-| `main_TSMC.py` | **核心主程式**(台積電期版本)。 |
+| `main_TSMC_fm.py` | **核心主程式**(台積電期版本, Findmind找歷史結算價)。 |
+| `main_TSMC.py` | 舊版本(可忽略)。 |
 | `main.py` | 舊版本(可忽略)。 |
 | `README.md` | 專案說明文件。 |
 
