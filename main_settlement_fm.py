@@ -1,4 +1,4 @@
-##### Shioaji 權勢策略_台指期 0611 fix drop_duplicates keep = 'first'
+##### Shioaji 權勢策略_台指期 1109 get_foreign_option_oi_msg
 import shioaji as sj
 import pandas as pd
 import numpy as np
@@ -85,17 +85,92 @@ def upload_memory_to_discord(webhook_url, img_bytes, filename="tx_daily_report.p
         print(f"❌ Discord 連線異常: {e}")
         return None
 
-def send_telegram_with_photo_url(token, chat_id, message, photo_url):
-    """透過圖片網址傳送 Telegram 訊息"""
-    url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {
-        "chat_id": chat_id,
-        "photo": photo_url,
-        "caption": message,
-        "parse_mode": "Markdown"
-    }
+def get_foreign_option_oi_msg(loader: DataLoader, n_days: int = 5) -> str:
+    """抓取 FinMind 台指選擇權 (TXO) 外資買權/賣權未平倉資料，並格式化最後 n_days 個交易日"""
     try:
-        r = requests.post(url, data=payload)
+        now_d = datetime.now().date()
+        start_d = (now_d - timedelta(days=30)).strftime('%Y-%m-%d')
+        end_d = now_d.strftime('%Y-%m-%d')
+        
+        df_opt = loader.taiwan_option_institutional_investors(
+            option_id="TXO",
+            start_date=start_d,
+            end_date=end_d
+        )
+        if df_opt.empty:
+            print("⚠️ 未取得台指選擇權外資資料 (資料為空)")
+            return ""
+        
+        # 篩選外資
+        df_foreign = df_opt[df_opt['institutional_investors'] == '外資'].copy()
+        if df_foreign.empty:
+            print("⚠️ 未取得台指選擇權外資資料")
+            return ""
+        
+        # 取得最後 n_days 個不重複交易日 (由舊到新排序)
+        unique_dates = sorted(df_foreign['date'].unique())[-n_days:]
+        df_last_n = df_foreign[df_foreign['date'].isin(unique_dates)].copy()
+        
+        lines = []
+        for d in unique_dates:
+            dt = pd.to_datetime(d)
+            date_str = f"{dt.month}/{dt.day}"
+            sub = df_last_n[df_last_n['date'] == d]
+            
+            # 分別依序取得買權 (Call) 與賣權 (Put)
+            for cp_type, cp_label in [("買權", "Call"), ("賣權", "Put")]:
+                row_match = sub[sub['call_put'] == cp_type]
+                if row_match.empty:
+                    continue
+                row = row_match.iloc[0]
+                long_amt = int(row['long_open_interest_balance_amount'])
+                long_vol = int(row['long_open_interest_balance_volume'])
+                short_amt = int(row['short_open_interest_balance_amount'])
+                short_vol = int(row['short_open_interest_balance_volume'])
+                diff_amt = long_amt - short_amt
+                diff_vol = long_vol - short_vol
+                
+                # 若 long - short 金額 >= 0 則為 Buy，否則為 Sell
+                side = "Buy" if diff_amt >= 0 else "Sell"
+                lines.append(
+                    f"{date_str} {side} {cp_label}: "
+                    f"{diff_amt:,}({diff_vol:,})"
+                    #f"{long_amt:,}({long_vol:,}) / {short_amt:,}({short_vol:,}) / {diff_amt:,}({diff_vol:,})"
+                )
+                
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"❌ 取得台指選擇權外資未平倉資料異常: {e}")
+        return ""
+
+def send_telegram_with_photo_url(token, chat_id, message, photo_url):
+    """透過圖片網址傳送 Telegram 訊息 (支援長訊息自動降級或拆分)"""
+    url_photo = f"https://api.telegram.org/bot{token}/sendPhoto"
+    url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        # Telegram sendPhoto caption 上限為 1024 字元
+        if len(message) <= 1024:
+            payload = {
+                "chat_id": chat_id,
+                "photo": photo_url,
+                "caption": message,
+                "parse_mode": "Markdown"
+            }
+            r = requests.post(url_photo, data=payload)
+            res = r.json()
+            if res.get("ok"):
+                return res
+            print(f"⚠️ Telegram sendPhoto 失敗 ({res.get('description')})，嘗試降級發送...")
+
+        # 超過 1024 字元或 sendPhoto 失敗時：
+        # 1. 發送照片
+        requests.post(url_photo, data={"chat_id": chat_id, "photo": photo_url})
+        # 2. 獨立發送完整文字訊息 (sendMessage 上限 4096 字元)
+        r = requests.post(url_msg, data={
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        })
         return r.json()
     except Exception as e:
         print(f"❌ Telegram 發送失敗: {e}")
@@ -155,6 +230,10 @@ if not df_fm_raw.empty:
     df_fm['date'] = pd.to_datetime(df_fm['date'])
 else:
     df_fm = pd.DataFrame()
+
+# 抓取外資選擇權未平倉資料
+print("正在從 Findmind 抓取外資選擇權未平倉資料...")
+option_oi_msg = get_foreign_option_oi_msg(fm_loader, n_days=5)
 
 # 2. 當日 K 棒: 使用 Shioaji API
 print("正在從 Shioaji 抓取當日資料...")
@@ -442,6 +521,9 @@ if public_img_url:
                f"🚦 狀態：{last['Message']}\n\n"
                f"📈 *向上5關卡*:\n{up_msg}\n\n"
                f"📉 *向下5關卡*:\n{down_msg}")
+
+    if option_oi_msg:
+        message += f"\n\n🎯 *外資買權/賣權未平倉*:\n{option_oi_msg}"
     
     send_telegram_with_photo_url(TG_TOKEN, TG_CHAT_ID, message, public_img_url)
     print("✅ Telegram 報告發送完畢。")
