@@ -1,4 +1,4 @@
-##### Shioaji 權勢策略_台指期 1119 fix shioaji.ShioajiTimeoutError
+##### Shioaji 權勢策略_台指期 1119 fix TimeoutError (retry機制)
 import shioaji as sj
 import pandas as pd
 import numpy as np
@@ -12,6 +12,11 @@ import sys
 import calendar
 import functools
 from FinMind.data import DataLoader
+
+# --- 動態偵測 Shioaji Timeout 例外類別 (相容所有版本) ---
+_SJ_TIMEOUT = getattr(sj.error, 'TimeoutError',
+                       getattr(sj, 'ShioajiTimeoutError', Exception))
+SJ_RETRY_EXCEPTIONS = (_SJ_TIMEOUT, ConnectionError, TimeoutError, OSError)
 
 # ==========================================
 # --- 核心邏輯設定區 (建議由環境變數讀取) ---
@@ -238,13 +243,13 @@ if now.weekday() >= 5:
     sys.exit()
 
 # --- Shioaji API 操作 (加入 retry) ---
-@retry(max_retries=3, delay=5, backoff=2, exceptions=(sj.error.TimeoutError, ConnectionError, TimeoutError))
+@retry(max_retries=3, delay=5, backoff=2, exceptions=SJ_RETRY_EXCEPTIONS)
 def sj_login(api_obj, api_key, secret_key):
     """Shioaji 登入 (含 retry)"""
     api_obj.login(api_key=api_key, secret_key=secret_key)
     return api_obj
 
-@retry(max_retries=3, delay=5, backoff=2, exceptions=(sj.error.TimeoutError, ConnectionError, TimeoutError))
+@retry(max_retries=3, delay=5, backoff=2, exceptions=SJ_RETRY_EXCEPTIONS)
 def sj_fetch_kbars(api_obj, contract, start, end):
     """Shioaji 抓取 K 棒 (含 retry)"""
     return api_obj.kbars(contract, start=start, end=end)
@@ -261,7 +266,7 @@ def sj_safe_logout(api_obj):
 api = sj.Shioaji()
 try:
     sj_login(api, api_key=API_KEY, secret_key=SECRET_KEY)
-except (sj.error.TimeoutError, ConnectionError, TimeoutError) as e:
+except SJ_RETRY_EXCEPTIONS as e:
     error_msg = f"Shioaji 登入失敗 (已重試 3 次): {e}"
     print(f"❌ {error_msg}")
     send_error_notification(TG_TOKEN, TG_CHAT_ID, error_msg)
@@ -609,7 +614,7 @@ try:
     else:
         print("❌ 圖片上傳失敗，停止發送 Telegram。")
 
-except (sj.error.TimeoutError, ConnectionError, TimeoutError) as e:
+except SJ_RETRY_EXCEPTIONS as e:
     error_msg = f"Shioaji API 操作逾時 (已重試): {e}"
     print(f"❌ {error_msg}")
     send_error_notification(TG_TOKEN, TG_CHAT_ID, error_msg)
